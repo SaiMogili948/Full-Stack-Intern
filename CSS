@@ -1,0 +1,87 @@
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+body {
+  font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+  background: linear-gradient(135deg, #667eea, #764ba2);
+  min-height: 100vh;
+  padding: 20px;
+}
+
+#root {
+  max-width: 1000px;
+  margin: 0 auto;
+}
+
+h1, h2, h3 {
+  color: #fff;
+  margin-bottom: 1rem;
+}
+
+button {
+  padding: 12px 20px;
+  background: #28a745;
+  color: white;
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  font-size: 16px;
+  margin-top: 10px;
+  transition: background 0.3s;
+}
+
+button:hover {
+  background: #218838;
+}
+
+button:disabled {
+  background: #666;
+  cursor: not-allowed;
+}
+
+input, select {
+  width: 100%;
+  padding: 12px;
+  margin: 8px 0;
+  border: 1px solid #ddd;
+  border-radius: 6px;
+  font-size: 16px;
+}
+
+.card {
+  background: white;
+  padding: 30px;
+  border-radius: 16px;
+  box-shadow: 0 10px 30px rgba(0,0,0,0.2);
+  margin-bottom: 30px;
+}
+
+nav a {
+  margin: 0 20px;
+  color: white;
+  font-size: 18px;
+  font-weight: bold;
+  text-decoration: none;
+  padding: 8px 0;
+  border-bottom: 3px solid transparent;
+  transition: all 0.3s;
+}
+
+nav a:hover {
+  border-bottom: 3px solid white;
+}
+
+.price-breakdown {
+  background: #e8f5e8;
+  padding: 20px;
+  border-radius: 12px;
+  margin: 20px 0;
+  font-size: 1.4em;
+  font-weight: bold;
+  color: #155724;
+  text-align: center;
+  border: 2px solid #28a745;
+}
