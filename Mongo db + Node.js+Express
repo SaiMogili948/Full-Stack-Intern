@@ -1,0 +1,251 @@
+import express from 'express';
+import mongoose from 'mongoose';
+import cors from 'cors';
+import dotenv from 'dotenv';
+import bookingRoutes from './routes/booking.routes.js';
+
+dotenv.config();
+
+const app = express();
+app.use(cors());
+app.use(express.json());
+
+app.get('/', (req, res) => {
+  res.json({ message: 'Badminton Booking API is Live!' });
+});
+
+app.use('/api', bookingRoutes);
+
+mongoose.connect(process.env.MONGO_URI)
+  .then(() => console.log('MongoDB Connected'))
+  .catch(err => {
+    console.error('MongoDB connection error:', err.message);
+    process.exit(1);
+  });
+
+const PORT = process.env.PORT || 5000;
+app.listen(PORT, () => {
+  console.log(`Server running on http://localhost:${PORT}`);
+});
+
+import mongoose from 'mongoose';
+
+const courtSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  type: { type: String, enum: ['indoor', 'outdoor'], required: true },
+  isActive: { type: Boolean, default: true }
+});
+
+export default mongoose.model('Court', courtSchema);
+
+import mongoose from 'mongoose';
+
+const equipmentSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  price: { type: Number, required: true },
+  totalQuantity: { type: Number, required: true },
+  isActive: { type: Boolean, default: true }
+});
+
+export default mongoose.model('Equipment', equipmentSchema);
+
+import mongoose from 'mongoose';
+
+const coachSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  hourlyRate: { type: Number, required: true },
+  isActive: { type: Boolean, default: true }
+});
+
+export default mongoose.model('Coach', coachSchema);
+
+import mongoose from 'mongoose';
+
+const ruleSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  condition: {
+    type: String,
+    enum: ['peak_hour', 'weekend', 'indoor'],
+    required: true
+  },
+  multiplier: { type: Number, required: true, min: 1 },
+  isActive: { type: Boolean, default: true }
+});
+
+export default mongoose.model('PricingRule', ruleSchema);
+
+import mongoose from 'mongoose';
+
+const ruleSchema = new mongoose.Schema({
+  name: { type: String, required: true },
+  condition: {
+    type: String,
+    enum: ['peak_hour', 'weekend', 'indoor'],
+    required: true
+  },
+  multiplier: { type: Number, required: true, min: 1 },
+  isActive: { type: Boolean, default: true }
+});
+
+export default mongoose.model('PricingRule', ruleSchema);
+
+import mongoose from 'mongoose';
+
+const bookingSchema = new mongoose.Schema({
+  date: { type: String, required: true },
+  timeSlot: { type: String, required: true },
+  court: { type: mongoose.Schema.Types.ObjectId, ref: 'Court', required: true },
+  equipment: [{ type: mongoose.Schema.Types.ObjectId, ref: 'Equipment' }],
+  coach: { type: mongoose.Schema.Types.ObjectId, ref: 'Coach' },
+  totalPrice: { type: Number, required: true },
+  userName: { type: String, required: true },
+  createdAt: { type: Date, default: Date.now }
+});
+
+bookingSchema.index({ date: 1, timeSlot: 1, court: 1 }, { unique: true });
+bookingSchema.index({ date: 1, timeSlot: 1, coach: 1 });
+
+export default mongoose.model('Booking', bookingSchema);
+
+import PricingRule from '../models/PricingRule.js';
+
+const BASE_PRICE = 60;
+
+const isPeakHour = (time) => {
+  const hour = parseInt(time.split(':')[0]);
+  return hour >= 18 && hour <= 21;
+};
+
+const isWeekend = (dateStr) => {
+  const day = new Date(dateStr).getDay();
+  return day === 0 || day === 6;
+};
+
+export const calculatePrice = async (court, equipmentIds = [], coachId, date, time) => {
+  const rules = await PricingRule.find({ isActive: true });
+  let price = BASE_PRICE;
+
+  rules.forEach(rule => {
+    if (rule.condition === 'peak_hour' && isPeakHour(time)) price *= rule.multiplier;
+    if (rule.condition === 'weekend' && isWeekend(date)) price *= rule.multiplier;
+    if (rule.condition === 'indoor' && court.type === 'indoor') price *= rule.multiplier;
+  });
+
+  // Equipment
+  if (equipmentIds.length > 0) {
+    const { default: Equipment } = await import('../models/Equipment.js');
+    for (const id of equipmentIds) {
+      const item = await Equipment.findById(id);
+      if (item) price += item.price;
+    }
+  }
+
+  // Coach
+  if (coachId) {
+    const { default: Coach } = await import('../models/Coach.js');
+    const coach = await Coach.findById(coachId);
+    if (coach) price += coach.hourlyRate;
+  }
+
+  return Math.round(price);
+};
+
+import Booking from '../models/Booking.js';
+import Equipment from '../models/Equipment.js';
+
+export const checkAvailability = async (date, timeSlot, courtId, equipmentIds = [], coachId) => {
+  const courtBooked = await Booking.findOne({ date, timeSlot, court: courtId });
+  if (courtBooked) throw new Error('Court already booked for this time');
+
+  if (coachId) {
+    const coachBooked = await Booking.findOne({ date, timeSlot, coach: coachId });
+    if (coachBooked) throw new Error('Coach not available');
+  }
+
+  for (const eqId of equipmentIds) {
+    const used = await Booking.countDocuments({ date, equipment: eqId });
+    const eq = await Equipment.findById(eqId);
+    if (!eq || used >= eq.totalQuantity) {
+      throw new Error(`${eq?.name || 'Equipment'} out of stock`);
+    }
+  }
+
+  return true;
+};
+
+import express from 'express';
+import Court from '../models/Court.js';
+import Booking from '../models/Booking.js';
+import { calculatePrice } from '../services/pricing.service.js';
+import { checkAvailability } from '../services/availability.service.js';
+
+const router = express.Router();
+
+router.get('/availability/:date', async (req, res) => {
+  try {
+    const { date } = req.params;
+    const bookings = await Booking.find({ date });
+    const bookedSlots = new Set(bookings.map(b => b.timeSlot));
+
+    const courts = await Court.find({ isActive: true });
+    const allSlots = ['10:00','11:00','12:00','18:00','19:00','20:00','21:00'];
+
+    const result = courts.map(court => ({
+      courtId: court._id,
+      name: court.name,
+      type: court.type,
+      availableSlots: allSlots.filter(slot => !bookedSlots.has(slot))
+    }));
+
+    res.json(result);
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/bookings', async (req, res) => {
+  try {
+    const { date, timeSlot, courtId, equipmentIds = [], coachId, userName } = req.body;
+
+    const court = await Court.findById(courtId);
+    if (!court) return res.status(404).json({ error: 'Court not found' });
+
+    await checkAvailability(date, timeSlot, courtId, equipmentIds, coachId);
+
+    const totalPrice = await calculatePrice(court, equipmentIds, coachId, date, timeSlot);
+
+    const booking = new Booking({
+      date, timeSlot, court: courtId,
+      equipment: equipmentIds, coach: coachId,
+      userName, totalPrice
+    });
+
+    await booking.save();
+
+    await booking.populate([
+      { path: 'court, select: 'name type' },
+      { path: 'equipment', select: 'name price' },
+      { path: 'coach', select: 'name hourlyRate' }
+    ]);
+
+    res.status(201).json({
+      message: 'Booking confirmed!',
+      booking,
+      totalPrice
+    });
+  } catch (err) {
+    res.status(400).json({ error: err.message });
+  }
+});
+
+router.get('/bookings', async (req, res) => {
+  const bookings = await Booking.find()
+    .populate('court', 'name type')
+    .populate('equipment', 'name price')
+    .populate('coach', 'name hourlyRate')
+    .sort({ date: 1, timeSlot: 1 });
+  res.json(bookings);
+});
+
+export default router;
+
